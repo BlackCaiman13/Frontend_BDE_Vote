@@ -1,0 +1,220 @@
+{
+    "routes": [
+        {
+            "endpoint": "static",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/static/<path:filename>"
+        },
+        {
+            "endpoint": "index",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/"
+        },
+        {
+            "endpoint": "debug_routes",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/debug/routes"
+        },
+        {
+            "endpoint": "debug_request_headers",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/debug/request-headers"
+        },
+        {
+            "endpoint": "uploaded_file",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/uploads/<path:filename>"
+        },
+        {
+            "endpoint": "admin.login",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/login"
+        },
+        {
+            "endpoint": "admin.logout",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/logout"
+        },
+        {
+            "endpoint": "admin.me",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/me"
+        },
+        {
+            "endpoint": "admin.debug_decode_jwt",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/debug/jwt"
+        },
+        {
+            "endpoint": "admin.refresh_token",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/token/refresh"
+        },
+        {
+            "endpoint": "admin.list_elections",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections"
+        },
+        {
+            "endpoint": "admin.create_election",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/elections"
+        },
+        {
+            "endpoint": "admin.delete_election",
+            "methods": [
+                "DELETE",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>"
+        },
+        {
+            "endpoint": "admin.update_election",
+            "methods": [
+                "OPTIONS",
+                "PATCH",
+                "PUT"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>"
+        },
+        {
+            "endpoint": "admin.create_candidate",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/candidates"
+        },
+        {
+            "endpoint": "admin.delete_candidate",
+            "methods": [
+                "DELETE",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/candidates/<candidate_uid>"
+        },
+        {
+            "endpoint": "admin.update_candidate",
+            "methods": [
+                "OPTIONS",
+                "PATCH",
+                "PUT"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/candidates/<candidate_uid>"
+        },
+        {
+            "endpoint": "admin.list_candidates",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/candidates"
+        },
+        {
+            "endpoint": "admin.results",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/results"
+        },
+        {
+            "endpoint": "admin.get_stats",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/stats"
+        },
+        {
+            "endpoint": "admin.list_voters",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/votants"
+        },
+        {
+            "endpoint": "admin.create_tokens",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/tokens/create"
+        },
+        {
+            "endpoint": "admin.send_tokens",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/admin/elections/<election_uid>/tokens/send"
+        },
+        {
+            "endpoint": "public.vote_get",
+            "methods": [
+                "GET",
+                "HEAD",
+                "OPTIONS"
+            ],
+            "rule": "/api/v1/elections/<election_uid>/vote/<token_hash>"
+        },
+        {
+            "endpoint": "public.vote_post",
+            "methods": [
+                "OPTIONS",
+                "POST"
+            ],
+            "rule": "/api/v1/elections/<election_uid>/vote/<token_hash>"
+        }
+    ]
+}

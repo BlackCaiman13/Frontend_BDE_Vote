@@ -4,8 +4,19 @@ import { useAdmin } from '@/contexts/AdminContext';
 import AdminLayout from '@/components/AdminLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Upload, UserCheck, Mail, Send } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Upload, UserCheck, Mail, Send, Plus, Trash2 } from 'lucide-react';
 
 const AdminVoters = () => {
   const { authRequest } = useAdmin();
@@ -17,7 +28,14 @@ const AdminVoters = () => {
   const [csvFile, setCsvFile] = useState(null);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [singleEmail, setSingleEmail] = useState('');
+  const [addingEmail, setAddingEmail] = useState(false);
+  const [deletingEmail, setDeletingEmail] = useState(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [emailToDelete, setEmailToDelete] = useState(null);
   const fileInputRef = useRef(null);
+
+  const getElectionUid = (election) => election?.uid || election?.id || election?.election_uid;
 
   useEffect(() => {
     fetchElections();
@@ -34,7 +52,7 @@ const AdminVoters = () => {
       const response = await authRequest({ method: 'get', url: '/admin/elections' });
       setElections(response.data);
       if (response.data.length > 0) {
-        setSelectedElectionId(response.data[0].uid);
+        setSelectedElectionId(getElectionUid(response.data[0]));
       }
     } catch (error) {
       toast.error('Erreur lors du chargement des élections');
@@ -50,6 +68,7 @@ const AdminVoters = () => {
         url: `/admin/elections/${selectedElectionId}/votants`
       });
       setVoters(response.data);
+      console.log('Voters fetched:', response.data);
     } catch (error) {
       toast.error('Erreur lors du chargement des électeurs');
     }
@@ -80,24 +99,73 @@ const AdminVoters = () => {
     setGenerating(true);
     const formData = new FormData();
     formData.set('file', csvFile);
-    console.log('FormData:', formData);
     try {
       const response = await authRequest({
         method: 'post',
-        url: `/admin/elections/${selectedElectionId}/tokens/create`,
+        url: `/admin/elections/${selectedElectionId}/tokens/create/csv`,
         data: formData,
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      console.log('Emails sent response:', response.data);
-      
-      toast.success(`${response.data.created ?? response.data.sent ?? 0} tokens générés`);
+      toast.success(`${response.data.created ?? response.data.sent ?? 0} électeurs importés`);
       fetchVoters();
       setCsvFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Erreur lors de la génération des tokens');
+      console.error('Generating tokens error:', error);
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleAddEmail = async (e) => {
+    e.preventDefault();
+    if (!selectedElectionId) {
+      toast.error('Veuillez sélectionner une élection');
+      return;
+    }
+    if (!singleEmail.trim()) {
+      toast.error('Veuillez saisir un email');
+      return;
+    }
+    setAddingEmail(true);
+    try {
+      await authRequest({
+        method: 'post',
+        url: `/admin/elections/${selectedElectionId}/tokens/create/email`,
+        data: { email: singleEmail.trim() }
+      });
+      toast.success('Électeur ajouté');
+      setSingleEmail('');
+      fetchVoters();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Erreur lors de l\'ajout');
+    } finally {
+      setAddingEmail(false);
+    }
+  };
+
+  const handleDeleteVoter = (email) => {
+    setEmailToDelete(email);
+    setConfirmDeleteOpen(true);
+  };
+
+  const confirmDeleteVoter = async () => {
+    if (!selectedElectionId || !emailToDelete) return;
+    setConfirmDeleteOpen(false);
+    setDeletingEmail(emailToDelete);
+    try {
+      await authRequest({
+        method: 'delete',
+        url: `/admin/elections/${selectedElectionId}/votants/${encodeURIComponent(emailToDelete)}`
+      });
+      toast.success('Électeur supprimé');
+      fetchVoters();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Erreur lors de la suppression');
+    } finally {
+      setDeletingEmail(null);
+      setEmailToDelete(null);
     }
   };
 
@@ -116,10 +184,12 @@ const AdminVoters = () => {
         data: {}
       });
       toast.success(`${response.data.sent} emails envoyés`);
+      
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Erreur lors de l\'envoi des emails');
     } finally {
       setSending(false);
+      fetchVoters();
     }
   };
 
@@ -166,18 +236,21 @@ const AdminVoters = () => {
                 className="w-full p-2.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-600 bg-white"
                 data-testid="election-selector"
               >
-                {elections.map(election => (
-                  <option key={election.uid } value={election.uid }>
-                    {election.title}
-                  </option>
-                ))}
+                {elections.map((election) => {
+                  const electionId = getElectionUid(election);
+                  return (
+                    <option key={electionId} value={electionId}>
+                      {election.title}
+                    </option>
+                  );
+                })}
               </select>
             </CardContent>
           </Card>
         )}
 
         {/* Operations Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card className="shadow-lg" data-testid="import-card">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -230,28 +303,46 @@ const AdminVoters = () => {
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-lg" data-testid="tokens-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserCheck className="text-green-600" />
-                Générer Tokens
-              </CardTitle>
-              <CardDescription>
-                Créez des tokens uniques pour chaque électeur
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
               <Button
                 onClick={handleGenerateTokens}
-                disabled={generating || !selectedElectionId || (!csvFile && voters.length === 0)}
+                disabled={generating || !selectedElectionId || !csvFile}
                 className="w-full bg-green-600 hover:bg-green-700"
                 data-testid="generate-tokens-button"
               >
-                {generating ? 'Génération...' : 'Générer les tokens'}
+                {generating ? 'Import en cours...' : 'Générer les tokens'}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg" data-testid="add-email-card">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Plus className="text-emerald-600" />
+                Ajouter un électeur
+              </CardTitle>
+              <CardDescription>
+                Ajoutez une adresse email individuellement
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleAddEmail} className="space-y-3">
+                <Input
+                  type="email"
+                  placeholder="ex: etudiant@example.com"
+                  value={singleEmail}
+                  onChange={(e) => setSingleEmail(e.target.value)}
+                  disabled={addingEmail || !selectedElectionId}
+                  data-testid="single-email-input"
+                />
+                <Button
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  disabled={addingEmail || !selectedElectionId}
+                  data-testid="add-email-button"
+                >
+                  {addingEmail ? 'Ajout...' : 'Ajouter'}
+                </Button>
+              </form>
             </CardContent>
           </Card>
 
@@ -297,8 +388,9 @@ const AdminVoters = () => {
                   <thead>
                     <tr className="border-b-2 border-slate-200">
                       <th className="text-left py-3 px-4 font-semibold text-slate-700">Email</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-700">Nom Complet</th>
-                      <th className="text-center py-3 px-4 font-semibold text-slate-700">Éligible</th>
+                      <th className="text-center py-3 px-4 font-semibold text-slate-700">Vote</th>
+                      <th className="text-center py-3 px-4 font-semibold text-slate-700">Mail</th>
+                      <th className="text-right py-3 px-4 font-semibold text-slate-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -307,17 +399,40 @@ const AdminVoters = () => {
                       return (
                         <tr key={keyId} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`voter-row-${keyId}`}>
                           <td className="py-3 px-4 text-slate-700" data-testid={`voter-email-${keyId}`}>{voter.email}</td>
-                          <td className="py-3 px-4 text-slate-700" data-testid={`voter-name-${keyId}`}>{voter.full_name}</td>
                           <td className="py-3 px-4 text-center">
-                            {voter.eligible ? (
-                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium" data-testid={`voter-eligible-${keyId}`}>
-                                Oui
+                            {voter.is_active ? (
+                              <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium" data-testid={`voter-eligible-${keyId}`}>
+                                Pas voté
                               </span>
                             ) : (
-                              <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">
-                                Non
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+                                Voté      
                               </span>
                             )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {voter.mailed ? (
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium" data-testid={`voter-mailed-${keyId}`}>
+                                Envoyé
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-sm font-medium" data-testid={`voter-mailed-${keyId}`}>
+                                Non envoyé
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteVoter(voter.email)}
+                              disabled={deletingEmail === voter.email}
+                              data-testid={`delete-voter-${keyId}`}
+                            >
+                              <Trash2 size={16} className="mr-1" />
+                              {deletingEmail === voter.email ? 'Suppression...' : 'Supprimer'}
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -328,6 +443,27 @@ const AdminVoters = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Confirmation Dialog */}
+        <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+              <AlertDialogDescription>
+                Êtes-vous sûr de vouloir supprimer l'électeur {emailToDelete} ? Cette action est irréversible.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDeleteVoter}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Supprimer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AdminLayout>
   );

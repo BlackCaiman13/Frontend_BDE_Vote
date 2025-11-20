@@ -7,7 +7,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Play, Square, Download, FileText, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { FileText, Plus, Trash2, Pencil } from 'lucide-react';
 
 const AdminElection = () => {
   const { authRequest } = useAdmin();
@@ -15,11 +25,18 @@ const AdminElection = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ title: '', start_at: '', end_at: '' });
+  const [editingElection, setEditingElection] = useState(null);
+  const [editFormData, setEditFormData] = useState({ title: '', start_at: '', end_at: '' });
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [electionToDelete, setElectionToDelete] = useState(null);
 
   useEffect(() => {
     fetchElections();
   }, []);
+
+  const getElectionUid = (election) => election?.uid || election?.id || election?.election_uid;
 
   const fetchElections = async () => {
     try {
@@ -45,37 +62,31 @@ const AdminElection = () => {
     return `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
   };
 
+  const formatForInput = (dateValue) => {
+    if (!dateValue) return '';
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 16);
+  };
+
+  const validateForm = (payload) => {
+    if (!payload.title || !payload.start_at || !payload.end_at) {
+      toast.error('Veuillez renseigner le titre, la date de début et la date de fin');
+      return false;
+    }
+    const start = new Date(payload.start_at);
+    const end = new Date(payload.end_at);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
+      toast.error('Les dates sont invalides ou la date de début doit être antérieure à la date de fin');
+      return false;
+    }
+    return true;
+  };
+
   const handleCreateElection = async (e) => {
     e.preventDefault();
 
-    console.log('FormData avant validation:', formData);
-    console.log('FormData.start_at vide?', !formData.start_at);
-    console.log('FormData.end_at vide?', !formData.end_at);
-
-    // Double check: les inputs sont-ils remplis?
-    const titleInput = document.getElementById('title');
-    const startInput = document.getElementById('start_at');
-    const endInput = document.getElementById('end_at');
-
-    console.log('Valeurs des inputs du DOM:', {
-      title: titleInput?.value,
-      start_at: startInput?.value,
-      end_at: endInput?.value
-    });
-
-    if (!formData.title || !formData.start_at || !formData.end_at) {
-      toast.error('Veuillez renseigner le titre, la date de début et la date de fin');
-      
-      return;
-    }
-
-    const start = new Date(formData.start_at);
-    const end = new Date(formData.end_at);
-    
-
-    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
-      toast.error('Les dates sont invalides ou la date de début doit être antérieure à la date de fin');
-      
+    if (!validateForm(formData)) {
       return;
     }
 
@@ -87,18 +98,16 @@ const AdminElection = () => {
 
       const payload = {
         title: formData.title,
-        start_at: start_at,
-        end_at: end_at,
+        start_at,
+        end_at,
       };
 
-
-      const response = await authRequest({
+      await authRequest({
         method: 'post',
         url: '/admin/elections',
         data: payload,
       });
 
-      
       toast.success('Élection créée avec succès');
       setFormData({ title: '', start_at: '', end_at: '' });
       setDialogOpen(false);
@@ -112,54 +121,67 @@ const AdminElection = () => {
     }
   };
 
-  const handleStartElection = async (electionId) => {
-    if (!window.confirm('Démarrer cette élection ?')) return;
+  const closeEditDialog = () => {
+    setEditDialogOpen(false);
+    setEditingElection(null);
+    setEditFormData({ title: '', start_at: '', end_at: '' });
+  };
+
+  const openEditDialog = (election) => {
+    setEditingElection(election);
+    setEditFormData({
+      title: election.title || '',
+      start_at: formatForInput(election.start_at),
+      end_at: formatForInput(election.end_at),
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateElection = async (e) => {
+    e.preventDefault();
+    if (!editingElection) return;
+
+    if (!validateForm(editFormData)) {
+      return;
+    }
+
+    const payload = {
+      title: editFormData.title,
+      start_at: formatForBackend(editFormData.start_at),
+      end_at: formatForBackend(editFormData.end_at),
+    };
 
     setActionLoading(true);
     try {
       await authRequest({
-        method: 'post',
-        url: `/admin/elections/${electionId}/start`,
-        data: {},
+        method: 'patch',
+        url: `/admin/elections/${getElectionUid(editingElection)}`,
+        data: payload,
       });
-      toast.success('Élection démarrée');
+      toast.success('Élection mise à jour');
+      closeEditDialog();
       fetchElections();
     } catch (error) {
-      console.error('Erreur démarrage:', error);
-      toast.error(error.response?.data?.detail || 'Erreur lors du démarrage');
+      console.error('Erreur lors de la mise à jour:', error);
+      toast.error(error.response?.data?.detail || 'Erreur lors de la mise à jour');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleStopElection = async (electionId) => {
-    if (!window.confirm('Terminer cette élection ? Cette action est irréversible.')) return;
-
-    setActionLoading(true);
-    try {
-      await authRequest({
-        method: 'post',
-        url: `/admin/elections/${electionId}/stop`,
-        data: {},
-      });
-      toast.success('Élection terminée');
-      fetchElections();
-    } catch (error) {
-      console.error('Erreur arrêt:', error);
-      toast.error(error.response?.data?.detail || 'Erreur lors de l\'arrêt');
-    } finally {
-      setActionLoading(false);
-    }
+  const handleDeleteElection = (electionId) => {
+    setElectionToDelete(electionId);
+    setConfirmDeleteOpen(true);
   };
 
-  const handleDeleteElection = async (electionId) => {
-    if (!window.confirm('Supprimer cette élection ? Cette action est irréversible.')) return;
-
+  const confirmDeleteElection = async () => {
+    if (!electionToDelete) return;
+    setConfirmDeleteOpen(false);
     setActionLoading(true);
     try {
       await authRequest({
         method: 'delete',
-        url: `/admin/elections/${electionId}`,
+        url: `/admin/elections/${electionToDelete}`,
       });
       toast.success('Élection supprimée');
       fetchElections();
@@ -168,6 +190,7 @@ const AdminElection = () => {
       toast.error(error.response?.data?.detail || 'Erreur lors de la suppression');
     } finally {
       setActionLoading(false);
+      setElectionToDelete(null);
     }
   };
 
@@ -287,8 +310,9 @@ const AdminElection = () => {
           ) : (
             elections.map((election) => {
               const status = getElectionStatus(election);
+              const electionUid = getElectionUid(election);
               return (
-                <Card key={election.id} className="shadow-lg hover:shadow-xl transition-shadow">
+                <Card key={electionUid} className="shadow-lg hover:shadow-xl transition-shadow">
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -307,30 +331,18 @@ const AdminElection = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-wrap gap-2">
-                      {status.label === 'Programmée' && (
-                        <Button
-                          onClick={() => handleStartElection(election.id)}
-                          disabled={actionLoading}
-                          className="bg-green-600 hover:bg-green-700"
-                          size="sm"
-                        >
-                          <Play size={16} className="mr-1" />
-                          Démarrer
-                        </Button>
-                      )}
-                      {status.label === 'En Cours' && (
-                        <Button
-                          onClick={() => handleStopElection(election.id)}
-                          disabled={actionLoading}
-                          variant="destructive"
-                          size="sm"
-                        >
-                          <Square size={16} className="mr-1" />
-                          Terminer
-                        </Button>
-                      )}
                       <Button
-                        onClick={() => handleDeleteElection(election.id)}
+                        onClick={() => openEditDialog(election)}
+                        disabled={actionLoading}
+                        size="sm"
+                        variant="secondary"
+                        className="bg-slate-100 text-slate-800 hover:bg-slate-200"
+                      >
+                        <Pencil size={16} className="mr-1" />
+                        Modifier
+                      </Button>
+                      <Button
+                        onClick={() => handleDeleteElection(electionUid)}
                         disabled={actionLoading}
                         variant="outline"
                         size="sm"
@@ -347,6 +359,94 @@ const AdminElection = () => {
           )}
         </div>
       </div>
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeEditDialog();
+          } else {
+            setEditDialogOpen(true);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier l'élection</DialogTitle>
+            <DialogDescription>
+              Mettez à jour les informations de l'élection sélectionnée
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateElection} className="space-y-4">
+            <div>
+              <Label htmlFor="edit_title">Titre de l'Élection</Label>
+              <Input
+                id="edit_title"
+                value={editFormData.title}
+                onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                placeholder="Titre"
+                required
+                data-testid="election-edit-title-input"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_start_at">Date et Heure de Début</Label>
+              <Input
+                id="edit_start_at"
+                type="datetime-local"
+                value={editFormData.start_at}
+                onChange={(e) => setEditFormData({ ...editFormData, start_at: e.target.value })}
+                required
+                data-testid="election-edit-start-date-input"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_end_at">Date et Heure de Fin</Label>
+              <Input
+                id="edit_end_at"
+                type="datetime-local"
+                value={editFormData.end_at}
+                onChange={(e) => setEditFormData({ ...editFormData, end_at: e.target.value })}
+                required
+                data-testid="election-edit-end-date-input"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={actionLoading} className="flex-1" data-testid="election-update-submit">
+                Mettre à jour
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeEditDialog}
+                className="flex-1"
+              >
+                Annuler
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Supprimer cette élection ? Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteElection}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AdminLayout>
   );
 };

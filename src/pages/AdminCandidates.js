@@ -8,6 +8,16 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, User, Upload } from 'lucide-react';
 
 const AdminCandidates = () => {
@@ -24,6 +34,8 @@ const AdminCandidates = () => {
     photo: null,
     photoPreview: null
   });
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [candidateToDelete, setCandidateToDelete] = useState(null);
   const photoInputRef = useRef(null);
 
   useEffect(() => {
@@ -36,14 +48,15 @@ const AdminCandidates = () => {
     }
   }, [selectedElectionId]);
 
+  const getElectionUid = (election) => election?.uid || election?.id || election?.election_uid;
+
   const fetchElections = async () => {
     try {
       // GET /api/v1/admin/elections avec refresh auto
       const response = await authRequest({ method: 'get', url: '/admin/elections' });
       setElections(response.data);
-      console.log('Elections fetched:', response.data); // Debug log
       if (response.data.length > 0) {
-        setSelectedElectionId(response.data[0].uid);
+        setSelectedElectionId(getElectionUid(response.data[0]));
       }
     } catch (error) {
       toast.error('Erreur lors du chargement des élections');
@@ -60,7 +73,6 @@ const AdminCandidates = () => {
         url: `/admin/elections/${electionId}/candidates`
       });
       setCandidates(response.data);
-      console.log('Candidates fetched:', response.data); // Debug log
     } catch (error) {
       toast.error('Erreur lors du chargement des candidats');
       setCandidates([]);
@@ -101,14 +113,19 @@ const AdminCandidates = () => {
         submitData.append('photo', formData.photo);
       }
 
-      // POST /api/v1/admin/elections/<election_id>/candidates avec refresh auto
-      await authRequest({
-        method: 'post',
-        url: `/admin/elections/${selectedElectionId}/candidates`,
+      const isEditing = Boolean(editingCandidate);
+      const candidateUid = editingCandidate ? (editingCandidate.uid || editingCandidate.id) : null;
+      const requestConfig = {
+        method: isEditing ? 'patch' : 'post',
+        url: isEditing
+          ? `/admin/elections/${selectedElectionId}/candidates/${candidateUid}`
+          : `/admin/elections/${selectedElectionId}/candidates`,
         data: submitData,
         headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success('Candidat ajouté avec succès');
+      };
+
+      await authRequest(requestConfig);
+      toast.success(isEditing ? 'Candidat mis à jour' : 'Candidat ajouté avec succès');
       fetchCandidates(selectedElectionId);
       resetForm();
       setDialogOpen(false);
@@ -123,24 +140,33 @@ const AdminCandidates = () => {
     setEditingCandidate(candidate);
     setFormData({
       name: candidate.name,
-      prenom: candidate.prenom || ''
+      prenom: candidate.prenom || '',
+      photo: null,
+      photoPreview: candidate.photo || candidate.photo_url || null
     });
     setDialogOpen(true);
   };
 
-  const handleDelete = async (candidateId) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce candidat ?')) return;
+  const handleDelete = (candidateId) => {
+    setCandidateToDelete(candidateId);
+    setConfirmDeleteOpen(true);
+  };
 
+  const confirmDelete = async () => {
+    if (!selectedElectionId || !candidateToDelete) return;
+    setConfirmDeleteOpen(false);
     try {
       // DELETE /admin/elections/<id>/candidates/<id> avec refresh auto
       await authRequest({
         method: 'delete',
-        url: `/admin/elections/${selectedElectionId}/candidates/${candidateId}`
+        url: `/admin/elections/${selectedElectionId}/candidates/${candidateToDelete}`
       });
       toast.success('Candidat supprimé');
       fetchCandidates(selectedElectionId);
     } catch (error) {
       toast.error('Erreur lors de la suppression');
+    } finally {
+      setCandidateToDelete(null);
     }
   };
 
@@ -175,11 +201,14 @@ const AdminCandidates = () => {
                 className="w-full p-2.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-600 bg-white"
                 data-testid="election-selector"
               >
-                {elections.map(election => (
-                  <option key={election.uid} value={election.uid}>
-                    {election.title}
-                  </option>
-                ))}
+                {elections.map(election => {
+                  const electionUid = getElectionUid(election);
+                  return (
+                    <option key={electionUid} value={electionUid}>
+                      {election.title}
+                    </option>
+                  );
+                })}
               </select>
             </CardContent>
           </Card>
@@ -200,7 +229,7 @@ const AdminCandidates = () => {
             <DialogContent data-testid="candidate-dialog">
               <DialogHeader>
                 <DialogTitle data-testid="dialog-title">
-                  Nouveau candidat
+                  {editingCandidate ? 'Modifier le candidat' : 'Nouveau candidat'}
                 </DialogTitle>
                 <DialogDescription>
                   Remplissez les informations du candidat
@@ -252,7 +281,7 @@ const AdminCandidates = () => {
                 </div>
                 <div className="flex gap-2">
                   <Button type="submit" className="flex-1" data-testid="save-candidate-button">
-                    Ajouter
+                    {editingCandidate ? 'Mettre à jour' : 'Ajouter'}
                   </Button>
                   <Button
                     type="button"
@@ -274,8 +303,10 @@ const AdminCandidates = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" data-testid="candidates-list">
-            {candidates.map((candidate) => (
-              <Card key={candidate.id} className="shadow-lg hover:shadow-xl transition-shadow" data-testid={`candidate-item-${candidate.id}`}>
+            {candidates.map((candidate) => {
+              const candidateUid = candidate.uid || candidate.id || candidate.candidate_uid;
+              return (
+              <Card key={candidateUid} className="shadow-lg hover:shadow-xl transition-shadow" data-testid={`candidate-item-${candidateUid}`}>
                 <CardHeader className="pb-4">
                   <div className="flex items-start gap-4">
                     <div className="flex-shrink-0">
@@ -292,10 +323,10 @@ const AdminCandidates = () => {
                       )}
                     </div>
                     <div className="flex-1">
-                      <CardTitle className="text-xl mb-1" data-testid={`candidate-name-${candidate.id}`}>
+                      <CardTitle className="text-xl mb-1" data-testid={`candidate-name-${candidateUid}`}>
                         {candidate.prenom} {candidate.name}
                       </CardTitle>
-                      <p className="text-sm text-slate-600" data-testid={`candidate-votes-${candidate.id}`}>
+                      <p className="text-sm text-slate-600" data-testid={`candidate-votes-${candidateUid}`}>
                         {candidate.votes || 0} votes
                       </p>
                     </div>
@@ -304,15 +335,15 @@ const AdminCandidates = () => {
                         size="sm"
                         variant="outline"
                         onClick={() => handleEdit(candidate)}
-                        data-testid={`edit-candidate-${candidate.id}`}
+                        data-testid={`edit-candidate-${candidateUid}`}
                       >
                         <Edit size={16} />
                       </Button>
                       <Button
                         size="sm"
                         variant="destructive"
-                        onClick={() => handleDelete(candidate.id)}
-                        data-testid={`delete-candidate-${candidate.id}`}
+                        onClick={() => handleDelete(candidateUid)}
+                        data-testid={`delete-candidate-${candidateUid}`}
                       >
                         <Trash2 size={16} />
                       </Button>
@@ -320,7 +351,7 @@ const AdminCandidates = () => {
                   </div>
                 </CardHeader>
               </Card>
-            ))}
+            )})}
           </div>
         )}
 
@@ -333,6 +364,27 @@ const AdminCandidates = () => {
             </CardContent>
           </Card>
         )}
+
+        {/* Confirmation Dialog */}
+        <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+              <AlertDialogDescription>
+                Êtes-vous sûr de vouloir supprimer ce candidat ? Cette action est irréversible.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDelete}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                Supprimer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AdminLayout>
   );

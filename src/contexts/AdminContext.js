@@ -1,46 +1,58 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import api from '@/lib/api';
 import axios from 'axios';
-import { useJwt, isExpired, decodeToken } from 'react-jwt';
+import { useJwt } from 'react-jwt';
+import api from '@/lib/api';
 
 const AdminContext = createContext();
 
 export const AdminProvider = ({ children }) => {
   const [accessToken, setAccessToken] = useState(() => localStorage.getItem('access_token'));
   const [refreshToken, setRefreshToken] = useState(() => localStorage.getItem('refresh_token'));
-  
-  // Utiliser react-jwt pour décoder et vérifier le token
+
   const { decodedToken, isExpired: tokenIsExpired, reEvaluateToken } = useJwt(accessToken);
   const isAuthenticated = !!accessToken && !tokenIsExpired;
+
+  const clearSession = useCallback(() => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setAccessToken(null);
+    setRefreshToken(null);
+    reEvaluateToken(null);
+  }, [reEvaluateToken]);
 
   // Fonction pour rafraîchir le token
   const refreshAccessToken = useCallback(async () => {
     if (!refreshToken) {
-      logout();
-      return false;
+      clearSession();
+      return null;
     }
 
     try {
-      const response = await api.post('/admin/token/refresh', { 
-        refresh_token: refreshToken 
+      const response = await api.post('/admin/token/refresh', {
+        refresh_token: refreshToken
       });
-      const { access_token: newAccessToken } = response.data;
-      
+      const { access_token: newAccessToken, refresh_token: newRefreshToken } = response.data;
+
       if (newAccessToken) {
         localStorage.setItem('access_token', newAccessToken);
         setAccessToken(newAccessToken);
         reEvaluateToken(newAccessToken);
-        return true;
-      } else {
-        logout();
-        return false;
+
+        if (newRefreshToken) {
+          localStorage.setItem('refresh_token', newRefreshToken);
+          setRefreshToken(newRefreshToken);
+        }
+
+        return newAccessToken;
       }
+      clearSession();
+      return null;
     } catch (error) {
       console.error('Erreur lors du refresh du token:', error);
-      logout();
-      return false;
+      clearSession();
+      return null;
     }
-  }, [refreshToken, reEvaluateToken]);
+  }, [refreshToken, clearSession, reEvaluateToken]);
 
   // Vérifier et rafraîchir le token automatiquement au montage et quand il expire
   useEffect(() => {
@@ -51,6 +63,9 @@ export const AdminProvider = ({ children }) => {
 
   // Login
   const login = useCallback((newAccessToken, newRefreshToken) => {
+    if (!newAccessToken || !newRefreshToken) {
+      throw new Error('Tokens manquants');
+    }
     localStorage.setItem('access_token', newAccessToken);
     localStorage.setItem('refresh_token', newRefreshToken);
     setAccessToken(newAccessToken);
@@ -59,13 +74,17 @@ export const AdminProvider = ({ children }) => {
   }, [reEvaluateToken]);
 
   // Logout
-  const logout = useCallback(() => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    setAccessToken(null);
-    setRefreshToken(null);
-    reEvaluateToken(null);
-  }, [reEvaluateToken]);
+  const logout = useCallback(async () => {
+    try {
+      if (refreshToken) {
+        await api.post('/admin/logout', { refresh_token: refreshToken });
+      }
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error);
+    } finally {
+      clearSession();
+    }
+  }, [refreshToken, clearSession]);
 
   // Requête authentifiée avec gestion automatique du refresh
   const authRequest = useCallback(async (config) => {
@@ -73,42 +92,39 @@ export const AdminProvider = ({ children }) => {
       throw new Error('Not authenticated');
     }
 
-    // Si le token est expiré, le rafraîchir d'abord
+    let tokenToUse = accessToken;
+
     if (tokenIsExpired) {
-      const refreshed = await refreshAccessToken();
-      if (!refreshed) {
+      const refreshedToken = await refreshAccessToken();
+      if (!refreshedToken) {
         throw new Error('Unable to refresh token');
       }
+      tokenToUse = refreshedToken;
     }
 
-    try {
+    const requestWithToken = async (token) => {
       const authApi = axios.create({
         baseURL: api.defaults.baseURL,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
+        withCredentials: true,
       });
 
-      const response = await authApi.request(config);
-      return response;
+      return authApi.request({
+        ...config,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.headers || {}),
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    };
+
+    try {
+      return await requestWithToken(tokenToUse);
     } catch (error) {
-      // Si 401, tenter le refresh une fois
       if (error.response?.status === 401) {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) {
-          try {
-            const retryApi = axios.create({
-              baseURL: api.defaults.baseURL,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}`,
-              },
-            });
-            return await retryApi.request(config);
-          } catch (retryError) {
-            throw retryError;
-          }
+        const refreshedToken = await refreshAccessToken();
+        if (refreshedToken) {
+          return requestWithToken(refreshedToken);
         }
       }
       throw error;

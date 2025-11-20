@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useAdmin } from '@/contexts/AdminContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -13,6 +13,8 @@ const ResultsPage = () => {
   const [results, setResults] = useState({ candidates: [], total_votes: 0 });
   const [loading, setLoading] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
+
+  const getCandidateId = (candidate) => candidate?.id || candidate?.candidate_uid || candidate?.uid;
 
   useEffect(() => {
     fetchElections();
@@ -85,13 +87,55 @@ const ResultsPage = () => {
     }
   };
 
+  const sortedCandidates = useMemo(() => {
+    return [...results.candidates].sort((a, b) => (b.votes || 0) - (a.votes || 0));
+  }, [results.candidates]);
+
+  const voteOccurrences = useMemo(() => {
+    return sortedCandidates.reduce((acc, candidate) => {
+      const votes = candidate.votes || 0;
+      acc[votes] = (acc[votes] || 0) + 1;
+      return acc;
+    }, {});
+  }, [sortedCandidates]);
+
+  const candidateRanks = useMemo(() => {
+    const ranks = {};
+    let currentRank = 0;
+    let previousVotes = null;
+    let position = 0;
+
+    sortedCandidates.forEach((candidate) => {
+      position += 1;
+      const votes = candidate.votes || 0;
+      if (previousVotes !== votes) {
+        currentRank = position;
+        previousVotes = votes;
+      }
+      const candidateId = getCandidateId(candidate);
+      ranks[candidateId] = {
+        rank: currentRank,
+        isTie: (voteOccurrences[votes] || 0) > 1
+      };
+    });
+
+    return ranks;
+  }, [sortedCandidates, voteOccurrences]);
+
+  const leadingCandidates = useMemo(() => {
+    if (sortedCandidates.length === 0 || results.total_votes === 0) {
+      return [];
+    }
+    const topVotes = sortedCandidates[0].votes || 0;
+    return sortedCandidates.filter(candidate => (candidate.votes || 0) === topVotes);
+  }, [sortedCandidates, results.total_votes]);
+
   const getPercentage = (votes) => {
     if (results.total_votes === 0) return 0;
     return Number(((votes / results.total_votes) * 100).toFixed(1));
   };
 
-  const sortedCandidates = [...results.candidates].sort((a, b) => (b.votes || 0) - (a.votes || 0));
-  const winner = sortedCandidates.length > 0 && results.total_votes > 0 ? sortedCandidates[0] : null;
+  const hasMultipleLeaders = leadingCandidates.length > 1;
 
   if (loading) {
     return (
@@ -164,39 +208,75 @@ const ResultsPage = () => {
                   </p>
                 </div>
 
-                {/* Winner card */}
-                {winner && results.total_votes > 0 && (
-              <Card className="mb-8 bg-gradient-to-r from-amber-50 to-yellow-50 border-4 border-amber-400 shadow-2xl" data-testid="winner-card">
-                <CardHeader className="text-center pb-4">
-                  <div className="mx-auto mb-4 w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center">
-                    <Award className="w-10 h-10 text-amber-900" />
-                  </div>
-                  <CardTitle className="text-3xl text-amber-900">En Tête</CardTitle>
-                </CardHeader>
-                <CardContent className="text-center">
-                  <div className="flex items-center justify-center gap-4 mb-4">
-                    {winner.photo || winner.photo_url ? (
-                      <img
-                        src={winner.photo || winner.photo_url}
-                        alt={winner.name || `${winner.prenom} ${winner.name}`}
-                        className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-lg"
-                      />
-                    ) : (
-                      <div className="w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-yellow-400 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-                        {(winner.name || winner.prenom || '?').charAt(0).toUpperCase()}
+                {/* Leader card with tie handling */}
+                {leadingCandidates.length > 0 && results.total_votes > 0 && (
+                  <Card className="mb-8 bg-gradient-to-r from-amber-50 to-yellow-50 border-4 border-amber-400 shadow-2xl" data-testid="winner-card">
+                    <CardHeader className="text-center pb-4">
+                      <div className="mx-auto mb-4 w-16 h-16 bg-amber-400 rounded-full flex items-center justify-center">
+                        <Award className="w-10 h-10 text-amber-900" />
                       </div>
-                    )}
-                    <div className="text-left">
-                      <h3 className="text-3xl font-bold text-amber-900" data-testid="winner-name">
-                        {winner.prenom ? `${winner.prenom} ${winner.name}` : winner.name}
-                      </h3>
-                      <p className="text-amber-700 text-xl mt-1" data-testid="winner-votes">
-                        {winner.votes || 0} votes ({getPercentage(winner.votes || 0)}%)
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                      <CardTitle className="text-3xl text-amber-900">
+                        {hasMultipleLeaders ? 'En tête (ex æquo)' : 'En tête'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {hasMultipleLeaders ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {leadingCandidates.map((candidate) => {
+                            const candidateId = getCandidateId(candidate);
+                            return (
+                              <div key={candidateId} className="flex items-center gap-4 p-4 bg-white/60 rounded-xl shadow">
+                                <div className="flex-shrink-0">
+                                  {candidate.photo || candidate.photo_url ? (
+                                    <img
+                                      src={candidate.photo || candidate.photo_url}
+                                      alt={candidate.name || `${candidate.prenom} ${candidate.name}`}
+                                      className="w-16 h-16 rounded-full object-cover border-4 border-amber-400 shadow-lg"
+                                    />
+                                  ) : (
+                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-yellow-400 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
+                                      {(candidate.name || candidate.prenom || '?').charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <h3 className="text-xl font-bold text-amber-900" data-testid={`winner-name-${candidateId}`}>
+                                    {candidate.prenom ? `${candidate.prenom} ${candidate.name}` : candidate.name}
+                                  </h3>
+                                  <p className="text-amber-700 text-base mt-1" data-testid={`winner-votes-${candidateId}`}>
+                                    {candidate.votes || 0} votes ({getPercentage(candidate.votes || 0)}%)
+                                  </p>
+                                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-600 bg-amber-100 px-2 py-1 rounded-full">Ex æquo</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-4">
+                          {leadingCandidates[0].photo || leadingCandidates[0].photo_url ? (
+                            <img
+                              src={leadingCandidates[0].photo || leadingCandidates[0].photo_url}
+                              alt={leadingCandidates[0].name || `${leadingCandidates[0].prenom} ${leadingCandidates[0].name}`}
+                              className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-lg"
+                            />
+                          ) : (
+                            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-yellow-400 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
+                              {(leadingCandidates[0].name || leadingCandidates[0].prenom || '?').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="text-left">
+                            <h3 className="text-3xl font-bold text-amber-900" data-testid="winner-name">
+                              {leadingCandidates[0].prenom ? `${leadingCandidates[0].prenom} ${leadingCandidates[0].name}` : leadingCandidates[0].name}
+                            </h3>
+                            <p className="text-amber-700 text-xl mt-1" data-testid="winner-votes">
+                              {leadingCandidates[0].votes || 0} votes ({getPercentage(leadingCandidates[0].votes || 0)}%)
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
 
                 {/* All candidates */}
@@ -210,16 +290,26 @@ const ResultsPage = () => {
               </Card>
             ) : (
               <div className="space-y-6" data-testid="candidates-results-list">
-                {sortedCandidates.map((candidate, index) => (
+                {sortedCandidates.map((candidate) => {
+                  const candidateId = getCandidateId(candidate);
+                  const rankInfo = candidateRanks[candidateId];
+                  return (
                   <Card
-                    key={candidate.id}
+                    key={candidateId}
                     className="shadow-xl hover:shadow-2xl transition-all"
-                    data-testid={`result-card-${candidate.id}`}
+                    data-testid={`result-card-${candidateId}`}
                   >
                     <CardContent className="p-6">
                       <div className="flex items-center gap-6 mb-4">
-                        <div className="text-3xl font-bold text-slate-400 w-12 text-center" data-testid={`candidate-rank-${candidate.id}`}>
-                          #{index + 1}
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-slate-400 w-16" data-testid={`candidate-rank-${candidateId}`}>
+                            #{rankInfo?.rank || '-'}
+                          </div>
+                          {rankInfo?.isTie && (
+                            <span className="inline-block mt-1 text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-600 rounded-full">
+                              Ex æquo
+                            </span>
+                          )}
                         </div>
                         <div className="flex-shrink-0">
                           {candidate.photo || candidate.photo_url ? (
@@ -235,27 +325,27 @@ const ResultsPage = () => {
                           )}
                         </div>
                         <div className="flex-1">
-                          <h3 className="text-2xl font-bold text-slate-800 mb-1" data-testid={`result-name-${candidate.id}`}>
+                          <h3 className="text-2xl font-bold text-slate-800 mb-1" data-testid={`result-name-${candidateId}`}>
                             {candidate.prenom ? `${candidate.prenom} ${candidate.name}` : candidate.name}
                           </h3>
                           {candidate.description && (
-                            <p className="text-slate-600" data-testid={`result-description-${candidate.id}`}>
+                            <p className="text-slate-600" data-testid={`result-description-${candidateId}`}>
                               {candidate.description}
                             </p>
                           )}
                         </div>
                         <div className="text-right">
-                          <div className="text-4xl font-bold text-violet-600" data-testid={`result-votes-${candidate.id}`}>
+                          <div className="text-4xl font-bold text-violet-600" data-testid={`result-votes-${candidateId}`}>
                             {candidate.votes || 0}
                           </div>
-                          <div className="text-sm text-slate-500" data-testid={`result-percentage-${candidate.id}`}>
+                          <div className="text-sm text-slate-500" data-testid={`result-percentage-${candidateId}`}>
                             {getPercentage(candidate.votes || 0)}%
                           </div>
                         </div>
                       </div>
                       
                       {/* Progress bar */}
-                      <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden" data-testid={`result-progress-${candidate.id}`}>
+                      <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden" data-testid={`result-progress-${candidateId}`}>
                         <div
                           className="h-full bg-gradient-to-r from-violet-600 to-indigo-600 transition-all duration-500 ease-out"
                           style={{ width: `${getPercentage(candidate.votes || 0)}%` }}
@@ -263,7 +353,7 @@ const ResultsPage = () => {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                )})}
               </div>
             )}
               </>

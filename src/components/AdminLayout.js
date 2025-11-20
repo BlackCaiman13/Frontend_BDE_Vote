@@ -8,8 +8,8 @@ const AdminLayout = ({ children }) => {
   const navigate = useNavigate();
   const { logout, adminEmail } = useAdmin();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/admin/login');
   };
 
