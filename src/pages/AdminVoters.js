@@ -28,14 +28,36 @@ const AdminVoters = () => {
   const [csvFile, setCsvFile] = useState(null);
   const [sending, setSending] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [singleEmail, setSingleEmail] = useState('');
-  const [addingEmail, setAddingEmail] = useState(false);
-  const [deletingEmail, setDeletingEmail] = useState(null);
+  const [singlePhone, setSinglePhone] = useState('');
+  const [addingPhone, setAddingPhone] = useState(false);
+  const [deletingPhone, setDeletingPhone] = useState(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [emailToDelete, setEmailToDelete] = useState(null);
+  const [phoneToDelete, setPhoneToDelete] = useState(null);
+  const [searchPhone, setSearchPhone] = useState('');
+  const [filterSent, setFilterSent] = useState('all'); // 'all', 'sent', 'not-sent'
   const fileInputRef = useRef(null);
 
   const getElectionUid = (election) => election?.uid || election?.id || election?.election_uid;
+
+  // Fonction de filtrage des votants
+  const getFilteredVoters = () => {
+    return voters.filter((voter) => {
+      // Filtre par numéro de téléphone
+      const matchesPhone = voter.phone && voter.phone.toLowerCase().includes(searchPhone.toLowerCase());
+      
+      // Filtre par statut d'envoi SMS
+      const matchesSent = 
+        filterSent === 'all' || 
+        (filterSent === 'sent' && voter.sent) ||
+        (filterSent === 'not-sent' && !voter.sent);
+      
+      
+      
+      return matchesPhone && matchesSent;
+    });
+  };
+
+  const filteredVoters = getFilteredVoters();
 
   useEffect(() => {
     fetchElections();
@@ -65,12 +87,13 @@ const AdminVoters = () => {
     try {
       const response = await authRequest({
         method: 'get',
-        url: `/admin/elections/${selectedElectionId}/votants`
+        url: `admin/elections/${selectedElectionId}/votants`
       });
       setVoters(response.data);
-      console.log('Voters fetched:', response.data);
+      console.log('Voters fetched:', response);
     } catch (error) {
-      toast.error('Erreur lors du chargement des électeurs');
+      toast.error('Erreur lors du chargement des électeurs',);
+      console.error('Fetching voters error:', error);
     }
   };
 
@@ -102,11 +125,11 @@ const AdminVoters = () => {
     try {
       const response = await authRequest({
         method: 'post',
-        url: `/admin/elections/${selectedElectionId}/tokens/create/csv`,
+        url: `admin/elections/${selectedElectionId}/tokens/create/csv`,
         data: formData,
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      toast.success(`${response.data.created ?? response.data.sent ?? 0} électeurs importés`);
+      toast.success(`${response.data.created ?? 0} tokens créés`);
       fetchVoters();
       setCsvFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -118,58 +141,58 @@ const AdminVoters = () => {
     }
   };
 
-  const handleAddEmail = async (e) => {
+  const handleAddPhone = async (e) => {
     e.preventDefault();
     if (!selectedElectionId) {
       toast.error('Veuillez sélectionner une élection');
       return;
     }
-    if (!singleEmail.trim()) {
-      toast.error('Veuillez saisir un email');
+    if (!singlePhone.trim()) {
+      toast.error('Veuillez saisir un numéro de téléphone');
       return;
     }
-    setAddingEmail(true);
+    setAddingPhone(true);
     try {
-      await authRequest({
+      const response = await authRequest({
         method: 'post',
-        url: `/admin/elections/${selectedElectionId}/tokens/create/email`,
-        data: { email: singleEmail.trim() }
+        url: `admin/elections/${selectedElectionId}/tokens/create/phone`,
+        data: { phone: singlePhone.trim() }
       });
-      toast.success('Électeur ajouté');
-      setSingleEmail('');
+      toast.success('Token créé pour ' + (response.data.phone || singlePhone.trim()));
+      setSinglePhone('');
       fetchVoters();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Erreur lors de l\'ajout');
     } finally {
-      setAddingEmail(false);
+      setAddingPhone(false);
     }
   };
 
-  const handleDeleteVoter = (email) => {
-    setEmailToDelete(email);
+  const handleDeleteVoter = (phone) => {
+    setPhoneToDelete(phone);
     setConfirmDeleteOpen(true);
   };
 
   const confirmDeleteVoter = async () => {
-    if (!selectedElectionId || !emailToDelete) return;
+    if (!selectedElectionId || !phoneToDelete) return;
     setConfirmDeleteOpen(false);
-    setDeletingEmail(emailToDelete);
+    setDeletingPhone(phoneToDelete);
     try {
       await authRequest({
         method: 'delete',
-        url: `/admin/elections/${selectedElectionId}/votants/${encodeURIComponent(emailToDelete)}`
+        url: `admin/elections/${selectedElectionId}/votants/${encodeURIComponent(phoneToDelete)}`
       });
-      toast.success('Électeur supprimé');
+      toast.success('Token supprimé');
       fetchVoters();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Erreur lors de la suppression');
     } finally {
-      setDeletingEmail(null);
-      setEmailToDelete(null);
+      setDeletingPhone(null);
+      setPhoneToDelete(null);
     }
   };
 
-  const handleSendEmails = async () => {
+  const handleSendSMS = async () => {
     if (!selectedElectionId) {
       toast.error('Veuillez sélectionner une élection');
       return;
@@ -177,16 +200,14 @@ const AdminVoters = () => {
 
     setSending(true);
     try {
-      // POST /api/v1/admin/elections/<election_id>/tokens/send avec refresh auto
       const response = await authRequest({
         method: 'post',
-        url: `/admin/elections/${selectedElectionId}/tokens/send`,
+        url: `admin/elections/${selectedElectionId}/tokens/send`,
         data: {}
       });
-      toast.success(`${response.data.sent} emails envoyés`);
-      
+      toast.success(`${response.data.sent ?? 0} SMS envoyés`);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Erreur lors de l\'envoi des emails');
+      toast.error(error.response?.data?.detail || 'Erreur lors de l\'envoi des SMS');
     } finally {
       setSending(false);
       fetchVoters();
@@ -194,7 +215,7 @@ const AdminVoters = () => {
   };
 
   const downloadTemplate = () => {
-    const csv = 'email\nadmin@example.com\nvoter1@example.com\nvoter2@example.com';
+    const csv = 'phone\n225123456789\n225987654321\n225611223344';
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -309,114 +330,222 @@ const AdminVoters = () => {
                 className="w-full bg-green-600 hover:bg-green-700"
                 data-testid="generate-tokens-button"
               >
-                {generating ? 'Import en cours...' : 'Générer les tokens'}
+                {generating ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin h-4 w-4 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    Import en cours...
+                  </span>
+                ) : (
+                  'Générer les tokens'
+                )}
               </Button>
             </CardContent>
           </Card>
 
-          <Card className="shadow-lg" data-testid="add-email-card">
+          <Card className="shadow-lg" data-testid="add-phone-card">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Plus className="text-emerald-600" />
-                Ajouter un électeur
+                Ajouter un électeur (téléphone)
               </CardTitle>
               <CardDescription>
-                Ajoutez une adresse email individuellement
+                Ajoutez un numéro de téléphone individuellement
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleAddEmail} className="space-y-3">
+              <form onSubmit={handleAddPhone} className="space-y-3">
                 <Input
-                  type="email"
-                  placeholder="ex: etudiant@example.com"
-                  value={singleEmail}
-                  onChange={(e) => setSingleEmail(e.target.value)}
-                  disabled={addingEmail || !selectedElectionId}
-                  data-testid="single-email-input"
+                  type="tel"
+                  placeholder="ex: 225123456789"
+                  value={singlePhone}
+                  onChange={(e) => setSinglePhone(e.target.value)}
+                  disabled={addingPhone || !selectedElectionId}
+                  data-testid="single-phone-input"
                 />
                 <Button
                   type="submit"
                   className="w-full bg-emerald-600 hover:bg-emerald-700"
-                  disabled={addingEmail || !selectedElectionId}
-                  data-testid="add-email-button"
+                  disabled={addingPhone || !selectedElectionId}
+                  data-testid="add-phone-button"
                 >
-                  {addingEmail ? 'Ajout...' : 'Ajouter'}
+                  {addingPhone ? 'Ajout...' : 'Ajouter'}
                 </Button>
               </form>
             </CardContent>
           </Card>
 
-          <Card className="shadow-lg" data-testid="emails-card">
+          <Card className="shadow-lg" data-testid="send-sms-card">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Mail className="text-blue-600" />
-                Envoyer Emails
+                <Send className="text-blue-600" />
+                Envoyer SMS
               </CardTitle>
               <CardDescription>
-                Envoyez les liens de vote par email
+                Envoyez les SMS de vote aux numéros générés
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button
-                onClick={handleSendEmails}
+                onClick={handleSendSMS}
                 disabled={sending || voters.length === 0 || !selectedElectionId}
                 className="w-full bg-blue-600 hover:bg-blue-700"
-                data-testid="send-emails-button"
+                data-testid="send-sms-button"
               >
-                {sending ? 'Envoi...' : 'Envoyer les emails'}
+                {sending ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin h-4 w-4 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    Envoi...
+                  </span>
+                ) : (
+                  'Envoyer les SMS'
+                )}
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!selectedElectionId) return toast.error('Veuillez sélectionner une élection');
+                  setSending(true);
+                  try {
+                    const resp = await authRequest({ method: 'post', url: `admin/elections/${selectedElectionId}/tokens/send/all`, data: {} });
+                    toast.success(`${resp.data.sent ?? 0} SMS renvoyés`);
+                    console.log('Resend all response:', resp);
+                  } catch (err) {
+                    toast.error(err.response?.data?.detail || 'Erreur lors du renvoi');
+                  } finally {
+                    setSending(false);
+                    fetchVoters();
+                  }
+                }}
+                disabled={sending || voters.length === 0 || !selectedElectionId}
+                variant="outline"
+                className="w-full mt-2"
+                data-testid="resend-all-button"
+              >
+                {sending ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin h-4 w-4 mr-2 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    Renvoyer...
+                  </span>
+                ) : (
+                  'Renvoyer à tous'
+                )}
               </Button>
             </CardContent>
           </Card>
+
         </div>
 
         {/* Voters List */}
         <Card className="shadow-lg">
           <CardHeader>
-            <CardTitle data-testid="voters-list-title">Électeurs Éligibles ({voters.length})</CardTitle>
+            <CardTitle data-testid="voters-list-title">Électeurs Éligibles ({filteredVoters.length})</CardTitle>
             <CardDescription>Liste de tous les électeurs importés</CardDescription>
           </CardHeader>
           <CardContent>
-            {voters.length === 0 ? (
+            {/* Barre de Recherche et Filtres */}
+            <div className="mb-6 space-y-4">
+              {/* Recherche par téléphone */}
+              <div>
+                <Label htmlFor="search-phone" className="text-sm font-semibold mb-2 block">
+                  Rechercher par numéro de téléphone
+                </Label>
+                <Input
+                  id="search-phone"
+                  type="text"
+                  placeholder="ex: 225123456789"
+                  value={searchPhone}
+                  onChange={(e) => setSearchPhone(e.target.value)}
+                  className="w-full"
+                  data-testid="search-phone-input"
+                />
+              </div>
+
+              {/* Filtres */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Filtre SMS */}
+                <div>
+                  <Label htmlFor="filter-sent" className="text-sm font-semibold mb-2 block">
+                    Filtre SMS
+                  </Label>
+                  <select
+                    id="filter-sent"
+                    value={filterSent}
+                    onChange={(e) => setFilterSent(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-600 bg-white"
+                    data-testid="filter-sent"
+                  >
+                    <option value="all">Tous</option>
+                    <option value="sent">SMS envoyés</option>
+                    <option value="not-sent">SMS non envoyés</option>
+                  </select>
+                </div>
+
+              </div>
+
+              {/* Bouton réinitialiser les filtres */}
+              <Button
+                onClick={() => {
+                  setSearchPhone('');
+                  setFilterSent('all');
+                }}
+                variant="outline"
+                size="sm"
+                className="w-full md:w-auto"
+                data-testid="reset-filters-button"
+              >
+                Réinitialiser les filtres
+              </Button>
+            </div>
+
+            {/* Résumé des résultats */}
+            {searchPhone || filterSent !== 'all' ? (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                Résultats : <strong>{filteredVoters.length}</strong> électeur(s) sur <strong>{voters.length}</strong>
+              </div>
+            ) : null}
+            {filteredVoters.length === 0 ? (
               <div className="text-center py-8" data-testid="no-voters">
                 <UserCheck className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                 <p className="text-xl text-slate-500 mb-2">Aucun électeur</p>
-                <p className="text-slate-400">Commencez par importer un fichier CSV</p>
+                <p className="text-slate-400">
+                  {voters.length === 0 
+                    ? 'Commencez par importer un fichier CSV' 
+                    : 'Aucun résultat ne correspond à vos critères de recherche'}
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full" data-testid="voters-table">
                   <thead>
                     <tr className="border-b-2 border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-700">Email</th>
-                      <th className="text-center py-3 px-4 font-semibold text-slate-700">Vote</th>
-                      <th className="text-center py-3 px-4 font-semibold text-slate-700">Mail</th>
+                          <th className="text-left py-3 px-4 font-semibold text-slate-700">Téléphone</th>
+                          <th className="text-center py-3 px-4 font-semibold text-slate-700">Token</th>
+                          <th className="text-center py-3 px-4 font-semibold text-slate-700">SMS</th>
                       <th className="text-right py-3 px-4 font-semibold text-slate-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {voters.map((voter) => {
-                      const keyId = voter.id ?? voter.uid ?? voter.email;
+                    {filteredVoters.map((voter) => {
+                      const keyId = voter.id ?? voter.uid ?? voter.phone;
                       return (
                         <tr key={keyId} className="border-b border-slate-100 hover:bg-slate-50" data-testid={`voter-row-${keyId}`}>
-                          <td className="py-3 px-4 text-slate-700" data-testid={`voter-email-${keyId}`}>{voter.email}</td>
+                          <td className="py-3 px-4 text-slate-700" data-testid={`voter-phone-${keyId}`}>{voter.phone}</td>
+                          <td className="py-3 px-4 text-center" data-testid={`voter-token-${keyId}`}>{voter.token || '—'}</td>
                           <td className="py-3 px-4 text-center">
-                            {voter.is_active ? (
-                              <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium" data-testid={`voter-eligible-${keyId}`}>
-                                Pas voté
-                              </span>
-                            ) : (
-                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-                                Voté      
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {voter.mailed ? (
-                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium" data-testid={`voter-mailed-${keyId}`}>
+                            {voter.sent ? (
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium" data-testid={`voter-sent-${keyId}`}>
                                 Envoyé
                               </span>
                             ) : (
-                              <span className="px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-sm font-medium" data-testid={`voter-mailed-${keyId}`}>
+                              <span className="px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-sm font-medium" data-testid={`voter-sent-${keyId}`}>
                                 Non envoyé
                               </span>
                             )}
@@ -426,12 +555,12 @@ const AdminVoters = () => {
                               variant="ghost"
                               size="sm"
                               className="text-red-600 hover:text-red-700"
-                              onClick={() => handleDeleteVoter(voter.email)}
-                              disabled={deletingEmail === voter.email}
+                              onClick={() => handleDeleteVoter(voter.phone)}
+                              disabled={deletingPhone === voter.phone}
                               data-testid={`delete-voter-${keyId}`}
                             >
                               <Trash2 size={16} className="mr-1" />
-                              {deletingEmail === voter.email ? 'Suppression...' : 'Supprimer'}
+                              {deletingPhone === voter.phone ? 'Suppression...' : 'Supprimer'}
                             </Button>
                           </td>
                         </tr>
@@ -450,8 +579,8 @@ const AdminVoters = () => {
             <AlertDialogHeader>
               <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
               <AlertDialogDescription>
-                Êtes-vous sûr de vouloir supprimer l'électeur {emailToDelete} ? Cette action est irréversible.
-              </AlertDialogDescription>
+                  Êtes-vous sûr de vouloir supprimer l'électeur {phoneToDelete} ? Cette action est irréversible.
+                </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Annuler</AlertDialogCancel>

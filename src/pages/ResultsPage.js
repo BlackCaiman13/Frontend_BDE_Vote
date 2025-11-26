@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { io } from 'socket.io-client';
 import { toast } from 'sonner';
 import { useAdmin } from '@/contexts/AdminContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -13,6 +14,7 @@ const ResultsPage = () => {
   const [results, setResults] = useState({ candidates: [], total_votes: 0 });
   const [loading, setLoading] = useState(true);
   const [loadingResults, setLoadingResults] = useState(false);
+  const socketRef = useRef(null);
 
   const getCandidateId = (candidate) => candidate?.id || candidate?.candidate_uid || candidate?.uid;
 
@@ -86,6 +88,58 @@ const ResultsPage = () => {
       setLoadingResults(false);
     }
   };
+
+  // WebSocket: rejoint la salle de l'élection et écoute les mises à jour
+  useEffect(() => {
+    if (!selectedElectionId) return;
+
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+    try {
+      const socket = io(backendUrl, { transports: ['websocket'] });
+      socketRef.current = socket;
+
+      // join room for this election
+      socket.emit('join', { election_uid: selectedElectionId });
+
+      const handleResultsUpdate = (data) => {
+        console.log('Received results_update via WS:', data);
+        // Normaliser le format attendu (compatibilité avec la forme renvoyée par l'API)
+        const resultsData = data || {};
+        const rawResults = resultsData.results || resultsData.candidates || [];
+
+        const candidates = (rawResults || []).map(result => ({
+          id: result.candidate_uid || result.id || result.uid,
+          candidate_uid: result.candidate_uid || result.id || result.uid,
+          name: result.name || result.nom,
+          prenom: result.prenom || result.firstname,
+          photo: result.photo || result.photo_url,
+          photo_url: result.photo || result.photo_url,
+          votes: result.vote_count ?? result.votes ?? 0,
+          vote_count: result.vote_count ?? result.votes ?? 0,
+        }));
+
+        const total_votes = resultsData.total_votes ?? candidates.reduce((s, c) => s + (c.votes || 0), 0);
+
+        setResults({ candidates, total_votes });
+      };
+
+      socket.on('results_update', handleResultsUpdate);
+
+      // nettoyage
+      return () => {
+        try {
+          socket.off('results_update', handleResultsUpdate);
+          socket.emit('leave', { election_uid: selectedElectionId });
+          socket.disconnect();
+        } catch (e) {
+          // ignore
+        }
+        socketRef.current = null;
+      };
+    } catch (err) {
+      console.warn('WebSocket (socket.io-client) non disponible :', err);
+    }
+  }, [selectedElectionId]);
 
   const sortedCandidates = useMemo(() => {
     return [...results.candidates].sort((a, b) => (b.votes || 0) - (a.votes || 0));

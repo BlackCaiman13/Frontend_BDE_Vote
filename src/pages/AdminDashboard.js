@@ -90,7 +90,7 @@ const AdminDashboard = () => {
     },
     {
       title: 'Taux de Participation',
-      value: `${stats.participation_rate}%`,
+      value: `${Number(stats.participation_rate).toFixed(2)}%`,
       icon: TrendingUp,
       color: 'from-green-400 to-emerald-600',
       testId: 'stat-participation'
